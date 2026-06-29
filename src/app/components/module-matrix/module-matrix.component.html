@@ -1,0 +1,104 @@
+<!-- Rollup summary -->
+<div class="rounded-lg border border-edge bg-panel p-5 space-y-4">
+  <div class="flex items-center justify-between gap-3">
+    <h2 class="text-sm font-semibold text-ink">Modernization progress</h2>
+    <span class="px-2 py-0.5 rounded-md bg-ghost border border-edge text-xs text-ink-2 font-mono">
+      {{ completeCount() }} / {{ modules().length }} modules complete
+    </span>
+  </div>
+
+  <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
+    @for (r of rollup(); track r.key) {
+      <div class="space-y-1.5" [title]="r.help">
+        <div class="flex items-baseline justify-between gap-1">
+          <span class="text-xs font-medium text-ink-2 truncate">{{ r.label }}</span>
+          <span class="text-xs font-mono text-ink-3">{{ r.done }}/{{ r.total }}</span>
+        </div>
+        <div class="h-1.5 rounded-full bg-ghost overflow-hidden">
+          <div
+            class="h-full bg-accent rounded-full transition-all duration-300"
+            [style.width.%]="percent(r.done, r.total)"
+          ></div>
+        </div>
+      </div>
+    }
+  </div>
+</div>
+
+<!-- Matrix table -->
+<div class="rounded-lg border border-edge bg-panel overflow-x-auto">
+  <table class="w-full text-sm border-collapse">
+    <thead>
+      <tr class="border-b border-edge">
+        <th class="sticky left-0 z-10 bg-panel text-left font-semibold text-ink px-4 py-3 min-w-44">
+          Module
+        </th>
+        @for (item of items; track item.key) {
+          <th class="px-2 py-3 text-center font-medium text-ink-2 whitespace-nowrap" [title]="item.help">
+            {{ item.label }}
+          </th>
+        }
+        <th class="px-3 py-3 text-left font-medium text-ink-2 whitespace-nowrap">Release PR</th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (m of modules(); track m.repo) {
+        <tr class="border-b border-edge/60 hover:bg-ghost/50 transition-colors">
+          <!-- Module name -->
+          <td class="sticky left-0 z-10 bg-panel px-4 py-2.5">
+            <a
+              [href]="'https://github.com/' + m.owner + '/' + m.repo"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="font-mono text-xs text-ink hover:text-accent transition-colors"
+            >
+              {{ m.name }}
+            </a>
+            @if (m.error) {
+              <span class="ml-1.5 text-rose-500 text-xs" [title]="m.error">⚠</span>
+            }
+          </td>
+
+          <!-- Checklist cells -->
+          @for (item of items; track item.key) {
+            <td class="px-2 py-2.5 text-center">
+              @if (m.loading) {
+                <span class="inline-block w-5 h-5 rounded-md bg-ghost animate-pulse"></span>
+              } @else {
+                <span
+                  class="inline-flex items-center justify-center w-5 h-5 rounded-md border text-xs font-semibold"
+                  [class]="chipClass(cell(m, item.key).state)"
+                  [title]="cell(m, item.key).detail || cell(m, item.key).state"
+                >
+                  {{ chipSymbol(cell(m, item.key).state) }}
+                </span>
+              }
+            </td>
+          }
+
+          <!-- Release PR -->
+          <td class="px-3 py-2.5 whitespace-nowrap">
+            @if (m.releasePr) {
+              <a
+                [href]="m.releasePr.html_url"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-xs font-mono"
+                [class]="prBadgeClass(m.releasePr.ciStatus)"
+                [title]="m.releasePr.title"
+              >
+                #{{ m.releasePr.number }}
+                @if (m.releasePr.isDraft) {
+                  <span class="text-ink-3">draft</span>
+                }
+                <span class="opacity-70">· {{ m.releasePr.ciStatus }}</span>
+              </a>
+            } @else if (!m.loading) {
+              <span class="text-xs text-ink-3">—</span>
+            }
+          </td>
+        </tr>
+      }
+    </tbody>
+  </table>
+</div>

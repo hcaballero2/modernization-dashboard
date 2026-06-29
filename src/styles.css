@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --c-page: 249 250 251;
+  --c-panel: 255 255 255;
+  --c-ghost: 243 244 246;
+  --c-matte: 229 231 235;
+  --c-edge: 229 231 235;
+  --c-edge-2: 209 213 219;
+  --c-ink: 17 24 39;
+  --c-ink-2: 75 85 99;
+  --c-ink-3: 156 163 175;
+  --c-accent: 37 99 235;
+  --c-accent-hover: 29 78 216;
+  --c-accent-subtle: 239 246 255;
+}
+
+.dark {
+  --c-page: 17 17 20;
+  --c-panel: 24 24 28;
+  --c-ghost: 35 35 42;
+  --c-matte: 50 50 56;
+  --c-edge: 42 42 48;
+  --c-edge-2: 63 63 70;
+  --c-ink: 244 244 245;
+  --c-ink-2: 161 161 170;
+  --c-ink-3: 113 113 122;
+  --c-accent: 96 165 250;
+  --c-accent-hover: 59 130 246;
+  --c-accent-subtle: 30 58 138;
+}
+
+@theme inline {
+  --font-family-sans: 'DM Sans', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-family-mono: 'DM Mono', ui-monospace, SFMono-Regular, monospace;
+
+  --color-page: rgb(var(--c-page));
+  --color-panel: rgb(var(--c-panel));
+  --color-ghost: rgb(var(--c-ghost));
+  --color-matte: rgb(var(--c-matte));
+  --color-edge: rgb(var(--c-edge));
+  --color-edge-2: rgb(var(--c-edge-2));
+  --color-ink: rgb(var(--c-ink));
+  --color-ink-2: rgb(var(--c-ink-2));
+  --color-ink-3: rgb(var(--c-ink-3));
+  --color-accent: rgb(var(--c-accent));
+  --color-accent-hover: rgb(var(--c-accent-hover));
+  --color-accent-subtle: rgb(var(--c-accent-subtle));
+}
+
+@layer base {
+  body {
+    background-color: rgb(var(--c-page));
+    color: rgb(var(--c-ink));
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--c-matte)) transparent;
+  }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: rgb(var(--c-matte));
+    border-radius: 3px;
+  }
+}
