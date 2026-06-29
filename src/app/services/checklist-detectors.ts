@@ -73,7 +73,7 @@ export function detectSpecHelper(gemfile: string | null): ChecklistCell {
   if (hasVox && hasPlabs) {
     return {
       state: 'partial',
-      detail: 'Both present — remove puppetlabs_spec_helper',
+      detail: "Remove gem 'puppetlabs_spec_helper' — voxpupuli-test is already in place",
       path: 'Gemfile',
       line: lineOf(gemfile, /puppetlabs_spec_helper/),
     };
@@ -102,15 +102,29 @@ export function detectPins(gemfile: string | null): ChecklistCell {
   }
   const rakeOk = rake != null && rake >= 6;
   const beakerOk = beaker != null && beaker >= 3;
-  const detail = `rake-helpers ${rake ?? '?'}, beaker-helpers ${beaker ?? '?'}`;
-  if (rakeOk && beakerOk) return { state: 'done', detail };
-  // Point at the pin that still needs bumping.
+  const have = `have rake-helpers ~> ${rake ?? '?'}.x, beaker-helpers ~> ${beaker ?? '?'}.x`;
+  if (rakeOk && beakerOk) {
+    return { state: 'done', detail: `rake-helpers ~> ${rake}, beaker-helpers ~> ${beaker}` };
+  }
+  // Point at the pin that still needs bumping, and name the target floor.
   const offending = !rakeOk ? 'simp-rake-helpers' : 'simp-beaker-helpers';
+  const targetFloor = !rakeOk ? 6 : 3;
+  const currentMajor = !rakeOk ? rake : beaker;
   const line = lineOf(gemfile, new RegExp(offending.replace(/-/g, '\\-')));
   if (rakeOk || beakerOk) {
-    return { state: 'partial', detail: `${detail} — bump ${offending}`, path: 'Gemfile', line };
+    return {
+      state: 'partial',
+      detail: `Bump ${offending} ~> ${currentMajor ?? '?'}.x → ~> ${targetFloor}.0`,
+      path: 'Gemfile',
+      line,
+    };
   }
-  return { state: 'todo', detail, path: 'Gemfile', line };
+  return {
+    state: 'todo',
+    detail: `Bump both pins → rake-helpers ~> 6.0, beaker-helpers ~> 3.0 (${have})`,
+    path: 'Gemfile',
+    line,
+  };
 }
 
 /** Pull the highest version number associated with a gem name in the Gemfile. */
@@ -184,9 +198,10 @@ export function detectReferenceCi(paths: string[], workflows: string | null): Ch
     const workflowPath =
       paths.find((p) => /^\.github\/workflows\/.*pr_tests.*\.ya?ml$/i.test(p)) ??
       paths.find((p) => /^\.github\/workflows\/.+\.ya?ml$/i.test(p));
+    const where = workflowPath ?? 'a CI workflow';
     return {
       state: 'partial',
-      detail: 'REFERENCE.md present — add a CI freshness check',
+      detail: `REFERENCE.md exists — add the 'strings:generate:reference' freshness job to ${where}`,
       path: workflowPath ?? 'REFERENCE.md',
     };
   }

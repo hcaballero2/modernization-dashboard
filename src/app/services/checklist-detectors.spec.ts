@@ -35,6 +35,7 @@ describe('detectSpecHelper', () => {
     expect(cell.state).toBe('partial');
     expect(cell.path).toBe('Gemfile');
     expect(cell.line).toBe(2);
+    expect(cell.detail).toMatch(/remove .*puppetlabs_spec_helper/i);
   });
 });
 
@@ -53,6 +54,9 @@ describe('detectPins', () => {
     expect(cell.state).toBe('partial');
     expect(cell.path).toBe('Gemfile');
     expect(cell.line).toBe(2);
+    // Names the lagging pin and its target floor, not just the current value.
+    expect(cell.detail).toContain('simp-beaker-helpers');
+    expect(cell.detail).toContain('~> 3.0');
   });
   it('unknown when pins absent', () => {
     expect(detectPins("gem 'puppet'").state).toBe('unknown');
