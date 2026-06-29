@@ -14,6 +14,10 @@ export interface ChecklistCell {
   state: CellState;
   /** Short human-readable evidence shown on hover. */
   detail?: string;
+  /** Repo-relative path of the file that needs the change (linked for partial cells). */
+  path?: string;
+  /** 1-based line number within `path` of the line that still needs changing, if known. */
+  line?: number;
 }
 
 /** The fixed per-module modernization checklist (see roadmap.md / Slack 2026-06-29). */
@@ -38,6 +42,15 @@ export interface ReleasePr {
   ciStatus: CiStatus;
 }
 
+export interface ModuleIssues {
+  /** Number of open modernization-related issues in the module's repo. */
+  count: number;
+  /** GitHub issues search URL (repo-scoped, modernization filter). */
+  url: string;
+  /** First few matched issue titles, for the hover tooltip. */
+  titles: string[];
+}
+
 export interface ModuleStatus {
   /** Short name, e.g. 'ssh'. */
   name: string;
@@ -49,6 +62,8 @@ export interface ModuleStatus {
   cells: Record<ChecklistKey, ChecklistCell>;
   /** Open "Cleanup for X.0.0 release" PR, if any (populated in Phase 3). */
   releasePr?: ReleasePr | null;
+  /** Open modernization-related issues for the module's repo. */
+  issues?: ModuleIssues | null;
   /** Per-module load state for incremental rendering. */
   loading: boolean;
   /** Fetch/parse error for this module, if any. */

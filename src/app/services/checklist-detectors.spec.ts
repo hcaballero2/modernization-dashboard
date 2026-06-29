@@ -30,8 +30,11 @@ describe('detectSpecHelper', () => {
   it('todo when still on puppetlabs_spec_helper', () => {
     expect(detectSpecHelper("gem 'puppetlabs_spec_helper', '~> 8.0'").state).toBe('todo');
   });
-  it('partial when both present', () => {
-    expect(detectSpecHelper("gem 'voxpupuli-test'\ngem 'puppetlabs_spec_helper'").state).toBe('partial');
+  it('partial when both present, linking the puppetlabs_spec_helper line', () => {
+    const cell = detectSpecHelper("gem 'voxpupuli-test'\ngem 'puppetlabs_spec_helper'");
+    expect(cell.state).toBe('partial');
+    expect(cell.path).toBe('Gemfile');
+    expect(cell.line).toBe(2);
   });
 });
 
@@ -44,9 +47,12 @@ describe('detectPins', () => {
     const gemfile = "gem 'simp-rake-helpers', '~> 5.24'\ngem 'simp-beaker-helpers', '~> 2.0'";
     expect(detectPins(gemfile).state).toBe('todo');
   });
-  it('partial when only one bumped', () => {
+  it('partial when only one bumped, linking the offending pin line', () => {
     const gemfile = "gem 'simp-rake-helpers', '~> 6.0'\ngem 'simp-beaker-helpers', '~> 2.0'";
-    expect(detectPins(gemfile).state).toBe('partial');
+    const cell = detectPins(gemfile);
+    expect(cell.state).toBe('partial');
+    expect(cell.path).toBe('Gemfile');
+    expect(cell.line).toBe(2);
   });
   it('unknown when pins absent', () => {
     expect(detectPins("gem 'puppet'").state).toBe('unknown');

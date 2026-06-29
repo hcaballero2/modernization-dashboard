@@ -55,6 +55,14 @@ export class ModuleMatrixComponent {
     return m.cells[key];
   }
 
+  /** GitHub deep-link to the line/file that still needs changing, or null. */
+  cellHref(m: ModuleStatus, key: ChecklistKey): string | null {
+    const c = m.cells[key];
+    if (!c.path) return null;
+    const base = `https://github.com/${m.owner}/${m.repo}/blob/HEAD/${c.path}`;
+    return c.line ? `${base}#L${c.line}` : base;
+  }
+
   percent(done: number, total: number): number {
     return total === 0 ? 0 : Math.round((done / total) * 100);
   }

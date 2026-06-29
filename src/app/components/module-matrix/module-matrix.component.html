@@ -64,7 +64,7 @@
             {{ item.label }}
           </th>
         }
-        <th class="px-3 py-3 text-left font-medium text-ink-2 whitespace-nowrap">Release PR</th>
+        <th class="px-3 py-3 text-left font-medium text-ink-2 whitespace-nowrap">Open work</th>
       </tr>
     </thead>
     <tbody>
@@ -95,6 +95,17 @@
                   class="text-[10px] uppercase tracking-wide text-ink-3"
                   [title]="cell(m, item.key).detail || 'Not applicable to this module'"
                 >n/a</span>
+              } @else if (cellHref(m, item.key); as href) {
+                <a
+                  [href]="href"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="inline-flex items-center justify-center w-5 h-5 rounded-md border text-xs font-semibold hover:ring-2 hover:ring-accent/40 transition"
+                  [class]="chipClass(cell(m, item.key).state)"
+                  [title]="cell(m, item.key).detail || cell(m, item.key).state"
+                >
+                  {{ chipSymbol(cell(m, item.key).state) }}
+                </a>
               } @else {
                 <span
                   class="inline-flex items-center justify-center w-5 h-5 rounded-md border text-xs font-semibold"
@@ -107,26 +118,40 @@
             </td>
           }
 
-          <!-- Release PR -->
+          <!-- Open work: release PR (badge color = its CI status) + modernization issues -->
           <td class="px-3 py-2.5 whitespace-nowrap">
-            @if (m.releasePr) {
-              <a
-                [href]="m.releasePr.html_url"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-xs font-mono"
-                [class]="prBadgeClass(m.releasePr.ciStatus)"
-                [title]="m.releasePr.title"
-              >
-                #{{ m.releasePr.number }}
-                @if (m.releasePr.isDraft) {
-                  <span class="text-ink-3">draft</span>
-                }
-                <span class="opacity-70">· {{ m.releasePr.ciStatus }}</span>
-              </a>
-            } @else if (!m.loading) {
-              <span class="text-xs text-ink-3">—</span>
-            }
+            <div class="flex items-center gap-2">
+              @if (m.releasePr) {
+                <a
+                  [href]="m.releasePr.html_url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-xs font-mono"
+                  [class]="prBadgeClass(m.releasePr.ciStatus)"
+                  [title]="'Open release PR #' + m.releasePr.number + ' — CI ' + m.releasePr.ciStatus + ': ' + m.releasePr.title"
+                >
+                  PR&nbsp;#{{ m.releasePr.number }}
+                  @if (m.releasePr.isDraft) {
+                    <span class="text-ink-3">draft</span>
+                  }
+                  <span class="opacity-70">· CI {{ m.releasePr.ciStatus }}</span>
+                </a>
+              }
+              @if (m.issues) {
+                <a
+                  [href]="m.issues.url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-xs font-mono bg-ghost text-ink-2 border-edge hover:text-ink"
+                  [title]="m.issues.titles.join('\n')"
+                >
+                  {{ m.issues.count }}&nbsp;issue{{ m.issues.count === 1 ? '' : 's' }}
+                </a>
+              }
+              @if (!m.releasePr && !m.issues && !m.loading) {
+                <span class="text-xs text-ink-3">—</span>
+              }
+            </div>
           </td>
         </tr>
       }

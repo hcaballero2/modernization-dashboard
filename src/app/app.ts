@@ -17,6 +17,16 @@ import {
 
 const RELEASE_PR_RE = /cleanup\s+(?:for\s+)?v?\d+\.\d+\.\d+\s+release/i;
 
+/** An open issue is "modernization-related" if its title or a label matches this. */
+const MODERNIZATION_ISSUE_RE =
+  /openvox|ruby ?4|\bel ?7\b|\bpdk\b|voxpupuli|puppetlabs_spec_helper|spec_helper|tcpwrappers|blast.?radius|non-destructive|moderniz|reference\.md|puppet ?[89]/i;
+
+/** Terms used to build the repo-scoped GitHub issues search link. */
+const MODERNIZATION_TERMS = [
+  'openvox', 'pdk', 'voxpupuli-test', 'puppetlabs_spec_helper', 'EL7', 'tcpwrappers',
+  '"blast radius"', 'non-destructive', 'REFERENCE.md',
+];
+
 @Component({
   selector: 'app-root',
   imports: [SearchFormComponent, ModuleMatrixComponent],
@@ -126,8 +136,8 @@ export class App {
         this.progress.update((p) => ({ ...p, done: Math.min(p.done + batch.length, p.total) }));
       }
 
-      // Phase 3: enrich with open "Cleanup for X.0.0 release" PRs + CI status.
-      await this.enrichReleasePrs(org, token);
+      // Phase 3: enrich with open release PRs + modernization issues.
+      await Promise.all([this.enrichReleasePrs(org, token), this.enrichIssues(org, token)]);
     } catch (e: unknown) {
       this.error.set(e instanceof Error ? e.message : 'An unknown error occurred.');
     } finally {
@@ -165,6 +175,44 @@ export class App {
         }),
       );
     }
+  }
+
+  /** Find open modernization-related issues across the org and attach them per module. */
+  private async enrichIssues(org: string, token: string): Promise<void> {
+    const { items } = await this.githubSearch.fetchAllSearchItems(
+      `org:${org} is:issue is:open`,
+      token,
+    );
+    const matched = items.filter(
+      (it) =>
+        MODERNIZATION_ISSUE_RE.test(it.title) ||
+        (it.labels ?? []).some((l) => MODERNIZATION_ISSUE_RE.test(l.name)),
+    );
+
+    const byRepo = new Map<string, GitHubIssueSearchItem[]>();
+    for (const it of matched) {
+      const repo = it.repository_url.split('/').pop();
+      if (!repo) continue;
+      const list = byRepo.get(repo) ?? [];
+      list.push(it);
+      byRepo.set(repo, list);
+    }
+
+    const query = encodeURIComponent(`is:issue is:open ${MODERNIZATION_TERMS.join(' OR ')}`);
+    this.modules.update((mods) =>
+      mods.map((m) => {
+        const list = byRepo.get(m.repo);
+        if (!list || list.length === 0) return m;
+        return {
+          ...m,
+          issues: {
+            count: list.length,
+            url: `https://github.com/${m.owner}/${m.repo}/issues?q=${query}`,
+            titles: list.slice(0, 8).map((i) => `#${i.number} ${i.title}`),
+          },
+        };
+      }),
+    );
   }
 
   private async toReleasePr(item: GitHubIssueSearchItem, token: string) {

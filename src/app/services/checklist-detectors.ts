@@ -45,6 +45,16 @@ function safeParse(json: string | null): ParsedMetadata | null {
   }
 }
 
+/** 1-based line number of the first line matching `re`, or undefined. */
+function lineOf(text: string | null, re: RegExp): number | undefined {
+  if (text == null) return undefined;
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    if (re.test(lines[i])) return i + 1;
+  }
+  return undefined;
+}
+
 /** pdk dropped: no `gem 'pdk'` entry remains in the Gemfile. */
 export function detectPdk(gemfile: string | null): ChecklistCell {
   if (gemfile == null) return { state: 'unknown', detail: 'No Gemfile found' };
@@ -60,8 +70,22 @@ export function detectSpecHelper(gemfile: string | null): ChecklistCell {
   const hasVox = /voxpupuli-test/.test(gemfile);
   const hasPlabs = /puppetlabs_spec_helper/.test(gemfile);
   if (hasVox && !hasPlabs) return { state: 'done', detail: 'Uses voxpupuli-test' };
-  if (hasVox && hasPlabs) return { state: 'partial', detail: 'Both voxpupuli-test and puppetlabs_spec_helper present' };
-  if (hasPlabs) return { state: 'todo', detail: 'Still uses puppetlabs_spec_helper' };
+  if (hasVox && hasPlabs) {
+    return {
+      state: 'partial',
+      detail: 'Both present — remove puppetlabs_spec_helper',
+      path: 'Gemfile',
+      line: lineOf(gemfile, /puppetlabs_spec_helper/),
+    };
+  }
+  if (hasPlabs) {
+    return {
+      state: 'todo',
+      detail: 'Still uses puppetlabs_spec_helper',
+      path: 'Gemfile',
+      line: lineOf(gemfile, /puppetlabs_spec_helper/),
+    };
+  }
   return { state: 'unknown', detail: 'Neither spec helper found in Gemfile' };
 }
 
@@ -80,8 +104,13 @@ export function detectPins(gemfile: string | null): ChecklistCell {
   const beakerOk = beaker != null && beaker >= 3;
   const detail = `rake-helpers ${rake ?? '?'}, beaker-helpers ${beaker ?? '?'}`;
   if (rakeOk && beakerOk) return { state: 'done', detail };
-  if (rakeOk || beakerOk) return { state: 'partial', detail };
-  return { state: 'todo', detail };
+  // Point at the pin that still needs bumping.
+  const offending = !rakeOk ? 'simp-rake-helpers' : 'simp-beaker-helpers';
+  const line = lineOf(gemfile, new RegExp(offending.replace(/-/g, '\\-')));
+  if (rakeOk || beakerOk) {
+    return { state: 'partial', detail: `${detail} — bump ${offending}`, path: 'Gemfile', line };
+  }
+  return { state: 'todo', detail, path: 'Gemfile', line };
 }
 
 /** Pull the highest version number associated with a gem name in the Gemfile. */
@@ -150,7 +179,17 @@ export function detectReferenceCi(paths: string[], workflows: string | null): Ch
   const hasReference = paths.includes('REFERENCE.md');
   const ciChecks = workflows != null && /strings:generate:reference|REFERENCE\.md/.test(workflows);
   if (hasReference && ciChecks) return { state: 'done', detail: 'REFERENCE.md + CI freshness check' };
-  if (hasReference) return { state: 'partial', detail: 'REFERENCE.md present, no CI check detected' };
+  if (hasReference) {
+    // The change needed is adding a freshness check to the CI workflow.
+    const workflowPath =
+      paths.find((p) => /^\.github\/workflows\/.*pr_tests.*\.ya?ml$/i.test(p)) ??
+      paths.find((p) => /^\.github\/workflows\/.+\.ya?ml$/i.test(p));
+    return {
+      state: 'partial',
+      detail: 'REFERENCE.md present — add a CI freshness check',
+      path: workflowPath ?? 'REFERENCE.md',
+    };
+  }
   return { state: 'todo', detail: 'No REFERENCE.md' };
 }
 
