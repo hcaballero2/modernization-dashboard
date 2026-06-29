@@ -9,14 +9,24 @@ import { ModuleListService } from './services/module-list.service';
 import { ChecklistService } from './services/checklist.service';
 import { GitHubSearchService } from './services/github-search.service';
 import { parseClosingIssueRefs } from './services/issue-links';
-import { emptyCells, ModuleStatus } from './models/module-status.model';
+import { ClosingPr, emptyCells, ModuleStatus, ReleasePr } from './models/module-status.model';
 import {
   CiStatus,
   GitHubCheckRunsResponse,
   GitHubIssueSearchItem,
   GitHubPullListItem,
-  GitHubPullRequestDetails,
 } from './models/pull-request.model';
+
+/** Resolved open-PR facts for one repo, shared by the matrix and the review queue. */
+interface RepoPrInfo {
+  owner: string;
+  repo: string;
+  releasePr: ReleasePr | null;
+  /** issue number -> the minimal closing-PR ref shown in the matrix tooltip. */
+  closingByIssue: Map<number, { number: number; url: string }>;
+  /** Distinct closing PRs (with CI), covering every matched issue in the repo. */
+  closingPrs: ClosingPr[];
+}
 
 const RELEASE_PR_RE = /cleanup\s+(?:for\s+)?v?\d+\.\d+\.\d+\s+release/i;
 
@@ -139,8 +149,8 @@ export class App {
         this.progress.update((p) => ({ ...p, done: Math.min(p.done + batch.length, p.total) }));
       }
 
-      // Phase 3: enrich with open release PRs + modernization issues.
-      await Promise.all([this.enrichReleasePrs(org, token), this.enrichIssues(org, token)]);
+      // Phase 3: enrich with open release PRs + modernization issues (shared CI).
+      await this.enrichPrs(org, token);
     } catch (e: unknown) {
       this.error.set(e instanceof Error ? e.message : 'An unknown error occurred.');
     } finally {
@@ -159,143 +169,189 @@ export class App {
     );
   }
 
-  /** Find open release PRs across the org and attach them (with CI status) to modules. */
-  private async enrichReleasePrs(org: string, token: string): Promise<void> {
-    const { items } = await this.githubSearch.fetchAllSearchItems(
-      `org:${org} is:pr is:open in:title Cleanup release`,
-      token,
-    );
-    const releaseItems = items.filter((it) => RELEASE_PR_RE.test(it.title));
+  /**
+   * Phase 3 (read-only): for every repo that has an open release PR OR a matched
+   * modernization issue, fetch its open-PR list ONCE (head SHAs come free with the
+   * list — no per-PR detail GET), then fetch check-runs ONCE per distinct PR we
+   * surface. The same CI result feeds the matrix (release badge + "in PR" coverage)
+   * and the "Ready to review" queue, so no PR's CI is looked up twice.
+   */
+  private async enrichPrs(org: string, token: string): Promise<void> {
+    // Org-wide searches run in parallel: open release PRs + open issues.
+    const [releaseSearch, issueSearch] = await Promise.all([
+      this.githubSearch.fetchAllSearchItems(
+        `org:${org} is:pr is:open in:title Cleanup release`,
+        token,
+      ),
+      this.githubSearch.fetchAllSearchItems(`org:${org} is:issue is:open`, token),
+    ]);
 
-    const BATCH = 8;
-    for (let i = 0; i < releaseItems.length; i += BATCH) {
-      const batch = releaseItems.slice(i, i + BATCH);
-      const enriched = await Promise.all(batch.map((it) => this.toReleasePr(it, token)));
-      this.modules.update((mods) =>
-        mods.map((m) => {
-          const hit = enriched.find((e) => e?.repo === m.repo);
-          return hit ? { ...m, releasePr: hit.pr } : m;
-        }),
-      );
-    }
-  }
-
-  /** Find open modernization-related issues across the org and attach them per module. */
-  private async enrichIssues(org: string, token: string): Promise<void> {
-    const { items } = await this.githubSearch.fetchAllSearchItems(
-      `org:${org} is:issue is:open`,
-      token,
-    );
-    const matched = items.filter(
+    const releaseItems = releaseSearch.items.filter((it) => RELEASE_PR_RE.test(it.title));
+    const matched = issueSearch.items.filter(
       (it) =>
         MODERNIZATION_ISSUE_RE.test(it.title) ||
         (it.labels ?? []).some((l) => MODERNIZATION_ISSUE_RE.test(l.name)),
     );
 
-    // Group matched issues by their repo (keyed "owner/repo").
-    const byRepo = new Map<string, { owner: string; repo: string; issues: GitHubIssueSearchItem[] }>();
+    // Group matched issues by repo, and collect every repo we must inspect
+    // (repos with a release PR but no matched issue still belong in the set).
+    const issuesByRepo = new Map<string, { owner: string; repo: string; issues: GitHubIssueSearchItem[] }>();
+    const reposOfInterest = new Map<string, { owner: string; repo: string }>();
     for (const it of matched) {
-      const parts = it.repository_url.split('/');
-      const repo = parts.pop();
-      const owner = parts.pop();
-      if (!repo || !owner) continue;
+      const { owner, repo } = this.parseRepoUrl(it.repository_url);
+      if (!owner || !repo) continue;
       const key = `${owner}/${repo}`;
-      const entry = byRepo.get(key) ?? { owner, repo, issues: [] };
+      const entry = issuesByRepo.get(key) ?? { owner, repo, issues: [] };
       entry.issues.push(it);
-      byRepo.set(key, entry);
+      issuesByRepo.set(key, entry);
+      reposOfInterest.set(key, { owner, repo });
+    }
+    for (const it of releaseItems) {
+      const { owner, repo } = this.parseRepoUrl(it.repository_url);
+      if (owner && repo) reposOfInterest.set(`${owner}/${repo}`, { owner, repo });
     }
 
-    // For each repo that has matching issues, fetch its open PRs (GET-only) and map
-    // issue number -> the open PR that will close it (via closing keywords).
-    const closingByRepo = new Map<string, Map<number, { number: number; url: string }>>();
-    const entries = [...byRepo.values()];
+    // Resolve each repo's PRs once (list + shared CI), in bounded batches.
+    const enriched = new Map<string, RepoPrInfo>();
+    const repos = [...reposOfInterest.values()];
     const BATCH = 8;
-    for (let i = 0; i < entries.length; i += BATCH) {
-      const batch = entries.slice(i, i + BATCH);
-      await Promise.all(batch.map((e) => this.mapClosingPrs(e.owner, e.repo, token, closingByRepo)));
+    for (let i = 0; i < repos.length; i += BATCH) {
+      const batch = repos.slice(i, i + BATCH);
+      const infos = await Promise.all(
+        batch.map((r) =>
+          this.resolveRepoPrs(
+            r.owner,
+            r.repo,
+            issuesByRepo.get(`${r.owner}/${r.repo}`)?.issues ?? [],
+            token,
+          ),
+        ),
+      );
+      for (const info of infos) enriched.set(`${info.owner}/${info.repo}`, info);
     }
 
     const query = encodeURIComponent(`is:issue is:open ${MODERNIZATION_TERMS.join(' OR ')}`);
     this.modules.update((mods) =>
       mods.map((m) => {
-        const entry = byRepo.get(`${m.owner}/${m.repo}`);
-        if (!entry || entry.issues.length === 0) return m;
-        const closing = closingByRepo.get(`${m.owner}/${m.repo}`) ?? new Map();
-        const items = entry.issues.slice(0, 8).map((i) => ({
-          number: i.number,
-          title: i.title,
-          closingPr: closing.get(i.number),
-        }));
-        const coveredCount = entry.issues.filter((i) => closing.has(i.number)).length;
-        return {
-          ...m,
-          issues: {
-            count: entry.issues.length,
-            coveredCount,
+        const info = enriched.get(`${m.owner}/${m.repo}`);
+        if (!info) return m;
+        const next: ModuleStatus = { ...m, releasePr: info.releasePr };
+        const issuesEntry = issuesByRepo.get(`${m.owner}/${m.repo}`);
+        if (issuesEntry && issuesEntry.issues.length > 0) {
+          const items = issuesEntry.issues.slice(0, 8).map((i) => ({
+            number: i.number,
+            title: i.title,
+            closingPr: info.closingByIssue.get(i.number),
+          }));
+          next.issues = {
+            count: issuesEntry.issues.length,
+            coveredCount: issuesEntry.issues.filter((i) => info.closingByIssue.has(i.number)).length,
             url: `https://github.com/${m.owner}/${m.repo}/issues?q=${query}`,
             items,
-          },
-        };
+            closingPrs: info.closingPrs,
+          };
+        }
+        return next;
       }),
     );
   }
 
-  /** Read a repo's open PRs and record which issues each will close, into `out`. */
-  private async mapClosingPrs(
+  /**
+   * One repo's open-PR facts: the release PR (if any) and the distinct PRs that
+   * will close matched issues — each with a CI status fetched exactly once.
+   */
+  private async resolveRepoPrs(
     owner: string,
     repo: string,
+    issues: GitHubIssueSearchItem[],
     token: string,
-    out: Map<string, Map<number, { number: number; url: string }>>,
-  ): Promise<void> {
-    const map = new Map<number, { number: number; url: string }>();
+  ): Promise<RepoPrInfo> {
+    const info: RepoPrInfo = { owner, repo, releasePr: null, closingByIssue: new Map(), closingPrs: [] };
+
+    let prs: GitHubPullListItem[];
     try {
-      const prs = await this.getJson<GitHubPullListItem[]>(
+      prs = await this.getJson<GitHubPullListItem[]>(
         `https://api.github.com/repos/${owner}/${repo}/pulls?state=open&per_page=100`,
         token,
       );
-      for (const pr of prs) {
-        const refs = parseClosingIssueRefs(`${pr.title}\n${pr.body ?? ''}`, owner, repo);
-        for (const num of refs) {
-          if (!map.has(num)) map.set(num, { number: pr.number, url: pr.html_url });
-        }
-      }
     } catch {
-      /* leave map empty on failure — issues simply show as uncovered */
+      return info; // on failure: no release PR, issues show as uncovered
     }
-    out.set(`${owner}/${repo}`, map);
+
+    // Which matched issue does each open PR close (first PR wins per issue)?
+    const issueNums = new Set(issues.map((i) => i.number));
+    const closingPrByIssue = new Map<number, GitHubPullListItem>();
+    for (const pr of prs) {
+      const refs = parseClosingIssueRefs(`${pr.title}\n${pr.body ?? ''}`, owner, repo);
+      for (const num of refs) {
+        if (issueNums.has(num) && !closingPrByIssue.has(num)) closingPrByIssue.set(num, pr);
+      }
+    }
+
+    const releasePrItem = prs.find((pr) => RELEASE_PR_RE.test(pr.title)) ?? null;
+
+    // Group closing PRs by number, accumulating the issues each will close.
+    const closingGroups = new Map<number, { pr: GitHubPullListItem; closes: number[] }>();
+    for (const [issueNum, pr] of closingPrByIssue) {
+      const g = closingGroups.get(pr.number) ?? { pr, closes: [] };
+      g.closes.push(issueNum);
+      closingGroups.set(pr.number, g);
+    }
+
+    // Resolve CI once per distinct PR we surface (release PR + closing PRs).
+    const distinct = new Map<number, GitHubPullListItem>();
+    if (releasePrItem) distinct.set(releasePrItem.number, releasePrItem);
+    for (const g of closingGroups.values()) distinct.set(g.pr.number, g.pr);
+
+    const ci = new Map<number, CiStatus>();
+    await Promise.all(
+      [...distinct.values()].map(async (pr) => {
+        ci.set(pr.number, await this.ciStatusForSha(owner, repo, pr.head.sha, token));
+      }),
+    );
+
+    if (releasePrItem) {
+      info.releasePr = {
+        number: releasePrItem.number,
+        title: releasePrItem.title,
+        html_url: releasePrItem.html_url,
+        isDraft: releasePrItem.draft,
+        ciStatus: ci.get(releasePrItem.number) ?? 'unknown',
+      };
+    }
+    info.closingByIssue = new Map(
+      [...closingPrByIssue].map(([num, pr]) => [num, { number: pr.number, url: pr.html_url }]),
+    );
+    info.closingPrs = [...closingGroups.values()].map((g) => ({
+      number: g.pr.number,
+      url: g.pr.html_url,
+      title: g.pr.title,
+      ciStatus: ci.get(g.pr.number) ?? 'unknown',
+      isDraft: g.pr.draft,
+      closes: g.closes,
+    }));
+    return info;
   }
 
-  private async toReleasePr(item: GitHubIssueSearchItem, token: string) {
-    const parts = item.repository_url.split('/');
-    const repo = parts.pop();
-    const owner = parts.pop();
-    if (!repo || !owner) return null;
+  /** Split a search item's repository_url into its owner/repo segments. */
+  private parseRepoUrl(url: string): { owner: string | null; repo: string | null } {
+    const parts = url.split('/');
+    const repo = parts.pop() ?? null;
+    const owner = parts.pop() ?? null;
+    return { owner, repo };
+  }
 
-    let ciStatus: CiStatus = 'unknown';
+  /** Read-only CI roll-up for a commit's check runs. */
+  private async ciStatusForSha(owner: string, repo: string, sha: string, token: string): Promise<CiStatus> {
     try {
-      const pr = await this.getJson<GitHubPullRequestDetails>(
-        `https://api.github.com/repos/${owner}/${repo}/pulls/${item.number}`,
-        token,
-      );
       const checks = await this.getJson<GitHubCheckRunsResponse>(
-        `https://api.github.com/repos/${owner}/${repo}/commits/${pr.head.sha}/check-runs`,
+        `https://api.github.com/repos/${owner}/${repo}/commits/${sha}/check-runs`,
         token,
       );
-      ciStatus = this.aggregateCheckRuns(checks);
+      return this.aggregateCheckRuns(checks);
     } catch {
-      ciStatus = 'unknown';
+      return 'unknown';
     }
-
-    return {
-      repo,
-      pr: {
-        number: item.number,
-        title: item.title,
-        html_url: item.html_url,
-        isDraft: false,
-        ciStatus,
-      },
-    };
   }
 
   private aggregateCheckRuns(checks: GitHubCheckRunsResponse): CiStatus {

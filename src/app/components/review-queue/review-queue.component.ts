@@ -8,12 +8,17 @@ interface ReadyPr {
   number: number;
   title: string;
   html_url: string;
+  /** True for a "Cleanup for X.0.0 release" PR; false for an issue-closing PR. */
+  isRelease: boolean;
+  /** Matched issue numbers this PR will close (empty for a plain release PR). */
+  closes: number[];
 }
 
 /**
- * "Ready to review" queue: open release PRs whose CI is green and that aren't drafts —
- * i.e. PRs a human can act on now. Failing/pending PRs are intentionally hidden.
- * Derived from already-fetched module data; issues no additional API calls.
+ * "Ready to review" queue: open PRs whose CI is green and that aren't drafts —
+ * both release PRs and PRs that will close a modernization issue, i.e. PRs a human
+ * can act on now. Failing/pending/draft PRs are intentionally hidden.
+ * Derived entirely from already-fetched module data; issues no additional API calls.
  */
 @Component({
   selector: 'app-review-queue',
@@ -33,7 +38,7 @@ interface ReadyPr {
             <span class="px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-500 font-mono">
               {{ ready().length }}
             </span>
-            <span class="hidden sm:inline text-xs text-ink-3">open release PRs · CI passing · not draft</span>
+            <span class="hidden sm:inline text-xs text-ink-3">open PRs · CI passing · not draft</span>
           </span>
           <svg
             class="w-4 h-4 text-ink-3 transition-transform duration-200"
@@ -46,7 +51,7 @@ interface ReadyPr {
 
         @if (expanded()) {
           <ul class="border-t border-edge divide-y divide-edge/60">
-            @for (r of ready(); track r.repo) {
+            @for (r of ready(); track r.owner + '/' + r.repo + '#' + r.number) {
               <li class="flex items-center gap-3 px-5 py-2.5 text-sm hover:bg-ghost/50 transition-colors">
                 <a
                   [href]="'https://github.com/' + r.owner + '/' + r.repo"
@@ -59,6 +64,11 @@ interface ReadyPr {
                   class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-xs font-mono shrink-0 bg-emerald-500/15 text-emerald-500 border-emerald-500/30"
                   [title]="'PR #' + r.number + ' — CI passing: ' + r.title"
                 >PR&nbsp;#{{ r.number }} · CI&nbsp;passing</a>
+                @if (r.isRelease) {
+                  <span class="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-mono uppercase tracking-wide bg-ghost text-ink-3 border border-edge">release</span>
+                } @else {
+                  <span class="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-mono bg-ghost text-ink-3 border border-edge" [title]="'Closes issue(s): ' + closesLabel(r)">closes&nbsp;{{ closesLabel(r) }}</span>
+                }
                 <span class="text-ink-2 truncate">{{ r.title }}</span>
               </li>
             }
@@ -72,19 +82,44 @@ export class ReviewQueueComponent {
   modules = input<ModuleStatus[]>([]);
   expanded = signal(true);
 
-  ready = computed<ReadyPr[]>(() =>
-    this.modules()
-      .filter((m) => m.releasePr && m.releasePr.ciStatus === 'success' && !m.releasePr.isDraft)
-      .map((m) => ({
-        name: m.name,
-        owner: m.owner,
-        repo: m.repo,
-        number: m.releasePr!.number,
-        title: m.releasePr!.title,
-        html_url: m.releasePr!.html_url,
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name)),
-  );
+  ready = computed<ReadyPr[]>(() => {
+    const out: ReadyPr[] = [];
+    for (const m of this.modules()) {
+      // Dedupe per module by PR number: a PR can be both a release PR and an
+      // issue-closer, and one PR can close several issues.
+      const byNumber = new Map<number, ReadyPr>();
+
+      const rp = m.releasePr;
+      if (rp && rp.ciStatus === 'success' && !rp.isDraft) {
+        byNumber.set(rp.number, {
+          name: m.name, owner: m.owner, repo: m.repo,
+          number: rp.number, title: rp.title, html_url: rp.html_url,
+          isRelease: true, closes: [],
+        });
+      }
+
+      for (const pr of m.issues?.closingPrs ?? []) {
+        if (pr.ciStatus !== 'success' || pr.isDraft) continue;
+        const existing = byNumber.get(pr.number);
+        if (existing) {
+          existing.closes.push(...pr.closes);
+        } else {
+          byNumber.set(pr.number, {
+            name: m.name, owner: m.owner, repo: m.repo,
+            number: pr.number, title: pr.title, html_url: pr.url,
+            isRelease: false, closes: [...pr.closes],
+          });
+        }
+      }
+
+      out.push(...byNumber.values());
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name) || a.number - b.number);
+  });
+
+  closesLabel(r: ReadyPr): string {
+    return r.closes.map((n) => `#${n}`).join(', ');
+  }
 
   toggle(): void {
     this.expanded.update((v) => !v);

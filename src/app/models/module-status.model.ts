@@ -49,6 +49,18 @@ export interface ModuleIssueItem {
   closingPr?: { number: number; url: string };
 }
 
+/** A distinct open PR that will close one or more matched modernization issues. */
+export interface ClosingPr {
+  number: number;
+  url: string;
+  title: string;
+  /** CI state, resolved from the same check-runs lookup the matrix/queue share. */
+  ciStatus: CiStatus;
+  isDraft: boolean;
+  /** Matched issue numbers this PR will auto-close. */
+  closes: number[];
+}
+
 export interface ModuleIssues {
   /** Number of open modernization-related issues in the module's repo. */
   count: number;
@@ -58,6 +70,8 @@ export interface ModuleIssues {
   url: string;
   /** First few matched issues (with any closing PR), for the hover tooltip. */
   items: ModuleIssueItem[];
+  /** All distinct open PRs that will close matched issues (not capped to `items`). */
+  closingPrs: ClosingPr[];
 }
 
 export interface ModuleStatus {

@@ -45,12 +45,18 @@ export interface GitHubPullRequestDetails {
   head: { sha: string };
 }
 
-/** A row from GET /repos/{owner}/{repo}/pulls (list open PRs). */
+/**
+ * A row from GET /repos/{owner}/{repo}/pulls (list open PRs).
+ * The list response already includes `draft` and `head.sha`, so a single list
+ * fetch covers both closing-keyword parsing and CI lookups — no per-PR detail GET.
+ */
 export interface GitHubPullListItem {
   number: number;
   title: string;
   body: string | null;
   html_url: string;
+  draft: boolean;
+  head: { sha: string };
 }
 
 export interface GitHubRepository {
