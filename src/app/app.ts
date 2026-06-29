@@ -7,11 +7,13 @@ import { SessionStorageService, SESSION_KEYS } from './services/session-storage.
 import { ModuleListService } from './services/module-list.service';
 import { ChecklistService } from './services/checklist.service';
 import { GitHubSearchService } from './services/github-search.service';
+import { parseClosingIssueRefs } from './services/issue-links';
 import { emptyCells, ModuleStatus } from './models/module-status.model';
 import {
   CiStatus,
   GitHubCheckRunsResponse,
   GitHubIssueSearchItem,
+  GitHubPullListItem,
   GitHubPullRequestDetails,
 } from './models/pull-request.model';
 
@@ -189,30 +191,77 @@ export class App {
         (it.labels ?? []).some((l) => MODERNIZATION_ISSUE_RE.test(l.name)),
     );
 
-    const byRepo = new Map<string, GitHubIssueSearchItem[]>();
+    // Group matched issues by their repo (keyed "owner/repo").
+    const byRepo = new Map<string, { owner: string; repo: string; issues: GitHubIssueSearchItem[] }>();
     for (const it of matched) {
-      const repo = it.repository_url.split('/').pop();
-      if (!repo) continue;
-      const list = byRepo.get(repo) ?? [];
-      list.push(it);
-      byRepo.set(repo, list);
+      const parts = it.repository_url.split('/');
+      const repo = parts.pop();
+      const owner = parts.pop();
+      if (!repo || !owner) continue;
+      const key = `${owner}/${repo}`;
+      const entry = byRepo.get(key) ?? { owner, repo, issues: [] };
+      entry.issues.push(it);
+      byRepo.set(key, entry);
+    }
+
+    // For each repo that has matching issues, fetch its open PRs (GET-only) and map
+    // issue number -> the open PR that will close it (via closing keywords).
+    const closingByRepo = new Map<string, Map<number, { number: number; url: string }>>();
+    const entries = [...byRepo.values()];
+    const BATCH = 8;
+    for (let i = 0; i < entries.length; i += BATCH) {
+      const batch = entries.slice(i, i + BATCH);
+      await Promise.all(batch.map((e) => this.mapClosingPrs(e.owner, e.repo, token, closingByRepo)));
     }
 
     const query = encodeURIComponent(`is:issue is:open ${MODERNIZATION_TERMS.join(' OR ')}`);
     this.modules.update((mods) =>
       mods.map((m) => {
-        const list = byRepo.get(m.repo);
-        if (!list || list.length === 0) return m;
+        const entry = byRepo.get(`${m.owner}/${m.repo}`);
+        if (!entry || entry.issues.length === 0) return m;
+        const closing = closingByRepo.get(`${m.owner}/${m.repo}`) ?? new Map();
+        const items = entry.issues.slice(0, 8).map((i) => ({
+          number: i.number,
+          title: i.title,
+          closingPr: closing.get(i.number),
+        }));
+        const coveredCount = entry.issues.filter((i) => closing.has(i.number)).length;
         return {
           ...m,
           issues: {
-            count: list.length,
+            count: entry.issues.length,
+            coveredCount,
             url: `https://github.com/${m.owner}/${m.repo}/issues?q=${query}`,
-            titles: list.slice(0, 8).map((i) => `#${i.number} ${i.title}`),
+            items,
           },
         };
       }),
     );
+  }
+
+  /** Read a repo's open PRs and record which issues each will close, into `out`. */
+  private async mapClosingPrs(
+    owner: string,
+    repo: string,
+    token: string,
+    out: Map<string, Map<number, { number: number; url: string }>>,
+  ): Promise<void> {
+    const map = new Map<number, { number: number; url: string }>();
+    try {
+      const prs = await this.getJson<GitHubPullListItem[]>(
+        `https://api.github.com/repos/${owner}/${repo}/pulls?state=open&per_page=100`,
+        token,
+      );
+      for (const pr of prs) {
+        const refs = parseClosingIssueRefs(`${pr.title}\n${pr.body ?? ''}`, owner, repo);
+        for (const num of refs) {
+          if (!map.has(num)) map.set(num, { number: pr.number, url: pr.html_url });
+        }
+      }
+    } catch {
+      /* leave map empty on failure — issues simply show as uncovered */
+    }
+    out.set(`${owner}/${repo}`, map);
   }
 
   private async toReleasePr(item: GitHubIssueSearchItem, token: string) {

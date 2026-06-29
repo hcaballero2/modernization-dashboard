@@ -42,13 +42,22 @@ export interface ReleasePr {
   ciStatus: CiStatus;
 }
 
+export interface ModuleIssueItem {
+  number: number;
+  title: string;
+  /** Open PR that will auto-close this issue (via a closing keyword), if any. */
+  closingPr?: { number: number; url: string };
+}
+
 export interface ModuleIssues {
   /** Number of open modernization-related issues in the module's repo. */
   count: number;
+  /** How many of those issues already have an open PR that will close them. */
+  coveredCount: number;
   /** GitHub issues search URL (repo-scoped, modernization filter). */
   url: string;
-  /** First few matched issue titles, for the hover tooltip. */
-  titles: string[];
+  /** First few matched issues (with any closing PR), for the hover tooltip. */
+  items: ModuleIssueItem[];
 }
 
 export interface ModuleStatus {

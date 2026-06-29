@@ -45,6 +45,14 @@ export interface GitHubPullRequestDetails {
   head: { sha: string };
 }
 
+/** A row from GET /repos/{owner}/{repo}/pulls (list open PRs). */
+export interface GitHubPullListItem {
+  number: number;
+  title: string;
+  body: string | null;
+  html_url: string;
+}
+
 export interface GitHubRepository {
   allow_squash_merge: boolean;
   allow_merge_commit: boolean;

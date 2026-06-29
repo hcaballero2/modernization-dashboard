@@ -142,10 +142,14 @@
                   [href]="m.issues.url"
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-xs font-mono bg-ghost text-ink-2 border-edge hover:text-ink"
-                  [title]="m.issues.titles.join('\n')"
+                  class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-xs font-mono"
+                  [class]="issuesBadgeClass(m)"
+                  [title]="issuesTooltip(m)"
                 >
                   {{ m.issues.count }}&nbsp;issue{{ m.issues.count === 1 ? '' : 's' }}
+                  @if (m.issues.coveredCount > 0) {
+                    <span class="text-emerald-500">· {{ m.issues.coveredCount }}&nbsp;in&nbsp;PR</span>
+                  }
                 </a>
               }
               @if (!m.releasePr && !m.issues && !m.loading) {

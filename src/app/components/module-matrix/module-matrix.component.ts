@@ -98,6 +98,32 @@ export class ModuleMatrixComponent {
     }
   }
 
+  /** True when every matched issue already has an open PR that will close it. */
+  allIssuesCovered(m: ModuleStatus): boolean {
+    const i = m.issues;
+    return !!i && i.count > 0 && i.coveredCount === i.count;
+  }
+
+  /** Neutral by default; emerald when all matched issues are already covered by PRs. */
+  issuesBadgeClass(m: ModuleStatus): string {
+    return this.allIssuesCovered(m)
+      ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30'
+      : 'bg-ghost text-ink-2 border-edge hover:text-ink';
+  }
+
+  /** Hover text: one line per issue, marking those a PR will close. */
+  issuesTooltip(m: ModuleStatus): string {
+    const i = m.issues;
+    if (!i) return '';
+    const lines = i.items.map((it) =>
+      it.closingPr
+        ? `#${it.number} ${it.title} — will close via PR #${it.closingPr.number}`
+        : `#${it.number} ${it.title}`,
+    );
+    if (i.count > i.items.length) lines.push(`…and ${i.count - i.items.length} more`);
+    return lines.join('\n');
+  }
+
   prBadgeClass(ci: string): string {
     switch (ci) {
       case 'success':
