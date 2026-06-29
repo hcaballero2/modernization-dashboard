@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, input, signal } from '@angular/core';
 import { ModuleStatus } from '../../models/module-status.model';
+import { CiStatus } from '../../models/pull-request.model';
 
 interface ReadyPr {
   name: string;
@@ -12,12 +13,15 @@ interface ReadyPr {
   isRelease: boolean;
   /** Matched issue numbers this PR will close (empty for a plain release PR). */
   closes: number[];
+  /** CI roll-up, shown as a colored badge. */
+  ciStatus: CiStatus;
 }
 
 /**
- * "Ready to review" queue: open PRs whose CI is green and that aren't drafts —
- * both release PRs and PRs that will close a modernization issue, i.e. PRs a human
- * can act on now. Failing/pending/draft PRs are intentionally hidden.
+ * "Ready to review" queue of non-draft open PRs a human can act on now:
+ * - release PRs whose CI is green (these are merge-ready), and
+ * - PRs that will close a modernization issue, at ANY CI state (a red one still
+ *   needs a reviewer — to push the fix forward), badged by CI status.
  * Derived entirely from already-fetched module data; issues no additional API calls.
  */
 @Component({
@@ -35,10 +39,10 @@ interface ReadyPr {
         >
           <span class="flex items-center gap-2">
             <span class="text-sm font-semibold text-ink">Ready to review</span>
-            <span class="px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-500 font-mono">
+            <span class="px-2 py-0.5 rounded-md bg-ghost border border-edge text-xs text-ink-2 font-mono">
               {{ ready().length }}
             </span>
-            <span class="hidden sm:inline text-xs text-ink-3">open PRs · CI passing · not draft</span>
+            <span class="hidden sm:inline text-xs text-ink-3">release PRs (CI green) + issue-closing PRs · not draft</span>
           </span>
           <svg
             class="w-4 h-4 text-ink-3 transition-transform duration-200"
@@ -61,9 +65,10 @@ interface ReadyPr {
                 <a
                   [href]="r.html_url"
                   target="_blank" rel="noopener noreferrer"
-                  class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-xs font-mono shrink-0 bg-emerald-500/15 text-emerald-500 border-emerald-500/30"
-                  [title]="'PR #' + r.number + ' — CI passing: ' + r.title"
-                >PR&nbsp;#{{ r.number }} · CI&nbsp;passing</a>
+                  class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-xs font-mono shrink-0"
+                  [class]="ciBadgeClass(r.ciStatus)"
+                  [title]="'PR #' + r.number + ' — ' + ciLabel(r.ciStatus) + ': ' + r.title"
+                >PR&nbsp;#{{ r.number }} · {{ ciLabel(r.ciStatus) }}</a>
                 @if (r.isRelease) {
                   <span class="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-mono uppercase tracking-wide bg-ghost text-ink-3 border border-edge">release</span>
                 } @else {
@@ -89,17 +94,19 @@ export class ReviewQueueComponent {
       // issue-closer, and one PR can close several issues.
       const byNumber = new Map<number, ReadyPr>();
 
+      // Release PRs are merge-ready only when green; failing/pending ones are noise here.
       const rp = m.releasePr;
       if (rp && rp.ciStatus === 'success' && !rp.isDraft) {
         byNumber.set(rp.number, {
           name: m.name, owner: m.owner, repo: m.repo,
           number: rp.number, title: rp.title, html_url: rp.html_url,
-          isRelease: true, closes: [],
+          isRelease: true, closes: [], ciStatus: rp.ciStatus,
         });
       }
 
+      // Issue-closing PRs show at any CI state (a red one still needs review), drafts aside.
       for (const pr of m.issues?.closingPrs ?? []) {
-        if (pr.ciStatus !== 'success' || pr.isDraft) continue;
+        if (pr.isDraft) continue;
         const existing = byNumber.get(pr.number);
         if (existing) {
           existing.closes.push(...pr.closes);
@@ -107,7 +114,7 @@ export class ReviewQueueComponent {
           byNumber.set(pr.number, {
             name: m.name, owner: m.owner, repo: m.repo,
             number: pr.number, title: pr.title, html_url: pr.url,
-            isRelease: false, closes: [...pr.closes],
+            isRelease: false, closes: [...pr.closes], ciStatus: pr.ciStatus,
           });
         }
       }
@@ -119,6 +126,33 @@ export class ReviewQueueComponent {
 
   closesLabel(r: ReadyPr): string {
     return r.closes.map((n) => `#${n}`).join(', ');
+  }
+
+  /** Tailwind classes for the CI badge by status (mirrors the matrix badge). */
+  ciBadgeClass(ci: CiStatus): string {
+    switch (ci) {
+      case 'success':
+        return 'bg-emerald-500/15 text-emerald-500 border-emerald-500/30';
+      case 'failure':
+        return 'bg-rose-500/15 text-rose-500 border-rose-500/30';
+      case 'pending':
+        return 'bg-amber-500/15 text-amber-500 border-amber-500/30';
+      default:
+        return 'bg-ghost text-ink-2 border-edge';
+    }
+  }
+
+  ciLabel(ci: CiStatus): string {
+    switch (ci) {
+      case 'success':
+        return 'CI passing';
+      case 'failure':
+        return 'CI failing';
+      case 'pending':
+        return 'CI pending';
+      default:
+        return 'CI unknown';
+    }
   }
 
   toggle(): void {
