@@ -26,7 +26,33 @@
 </div>
 
 <!-- Matrix table -->
-<div class="rounded-lg border border-edge bg-panel overflow-x-auto">
+<div class="rounded-lg border border-edge bg-panel">
+  <!-- Legend -->
+  <div class="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5 border-b border-edge text-xs text-ink-3">
+    <span class="font-medium text-ink-2">Legend</span>
+    <span class="inline-flex items-center gap-1.5">
+      <span class="inline-flex items-center justify-center w-5 h-5 rounded-md border text-xs font-semibold bg-emerald-500/15 text-emerald-500 border-emerald-500/30">✓</span>
+      done
+    </span>
+    <span class="inline-flex items-center gap-1.5">
+      <span class="inline-flex items-center justify-center w-5 h-5 rounded-md border text-xs font-semibold bg-rose-500/15 text-rose-500 border-rose-500/30">✗</span>
+      to&nbsp;do
+    </span>
+    <span class="inline-flex items-center gap-1.5">
+      <span class="inline-flex items-center justify-center w-5 h-5 rounded-md border text-xs font-semibold bg-amber-500/15 text-amber-500 border-amber-500/30">◐</span>
+      partial
+    </span>
+    <span class="inline-flex items-center gap-1.5">
+      <span class="text-[10px] uppercase tracking-wide text-ink-3">n/a</span>
+      not applicable
+    </span>
+    <span class="inline-flex items-center gap-1.5">
+      <span class="inline-flex items-center justify-center w-5 h-5 rounded-md border text-xs font-semibold bg-ghost text-ink-3 border-edge">?</span>
+      unknown
+    </span>
+  </div>
+
+  <div class="overflow-x-auto">
   <table class="w-full text-sm border-collapse">
     <thead>
       <tr class="border-b border-edge">
@@ -64,6 +90,11 @@
             <td class="px-2 py-2.5 text-center">
               @if (m.loading) {
                 <span class="inline-block w-5 h-5 rounded-md bg-ghost animate-pulse"></span>
+              } @else if (cell(m, item.key).state === 'na') {
+                <span
+                  class="text-[10px] uppercase tracking-wide text-ink-3"
+                  [title]="cell(m, item.key).detail || 'Not applicable to this module'"
+                >n/a</span>
               } @else {
                 <span
                   class="inline-flex items-center justify-center w-5 h-5 rounded-md border text-xs font-semibold"
@@ -101,4 +132,5 @@
       }
     </tbody>
   </table>
+  </div>
 </div>
