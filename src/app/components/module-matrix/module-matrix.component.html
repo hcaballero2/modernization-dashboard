@@ -52,19 +52,19 @@
     </span>
   </div>
 
-  <div class="overflow-x-auto">
+  <div class="overflow-auto max-h-[calc(100vh-8rem)]">
   <table class="w-full text-sm border-collapse">
     <thead>
-      <tr class="border-b border-edge">
-        <th class="sticky left-0 z-10 bg-panel text-left font-semibold text-ink px-4 py-3 min-w-44">
+      <tr>
+        <th class="sticky left-0 top-0 z-30 bg-panel border-b border-edge text-left font-semibold text-ink px-4 py-3 min-w-44">
           Module
         </th>
         @for (item of items; track item.key) {
-          <th class="px-2 py-3 text-center font-medium text-ink-2 whitespace-nowrap" [title]="item.help">
+          <th class="sticky top-0 z-20 bg-panel border-b border-edge px-2 py-3 text-center font-medium text-ink-2 whitespace-nowrap" [title]="item.help">
             {{ item.label }}
           </th>
         }
-        <th class="px-3 py-3 text-left font-medium text-ink-2 whitespace-nowrap">Open work</th>
+        <th class="sticky top-0 z-20 bg-panel border-b border-edge px-3 py-3 text-left font-medium text-ink-2 whitespace-nowrap">Open work</th>
       </tr>
     </thead>
     <tbody>
