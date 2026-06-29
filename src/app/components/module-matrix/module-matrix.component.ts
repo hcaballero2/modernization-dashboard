@@ -75,8 +75,7 @@ export class ModuleMatrixComponent {
       case 'todo':
         return 'bg-rose-500/15 text-rose-500 border-rose-500/30';
       case 'partial':
-        // Two-tone: emerald (done) left half, amber (remaining) right half.
-        return 'border-amber-500/40 text-transparent bg-[linear-gradient(90deg,rgb(16_185_129/0.35)_0_50%,rgb(245_158_11/0.30)_50%_100%)]';
+        return 'bg-amber-500/15 text-amber-500 border-amber-500/30';
       case 'na':
         return 'bg-ghost text-ink-3 border-edge';
       default:
@@ -91,8 +90,7 @@ export class ModuleMatrixComponent {
       case 'todo':
         return '✗';
       case 'partial':
-        // The two-tone split fill is the signal; no glyph (see chipClass).
-        return '';
+        return '◐';
       case 'na':
         return '–';
       default:
