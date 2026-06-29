@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, signal, computed, inject, effect } 
 import { DOCUMENT } from '@angular/common';
 import { SearchFormComponent } from './components/search-form/search-form.component';
 import { ModuleMatrixComponent } from './components/module-matrix/module-matrix.component';
+import { ReviewQueueComponent } from './components/review-queue/review-queue.component';
 import { getSourceRepositoryUrl } from './config/source-repository-url';
 import { SessionStorageService, SESSION_KEYS } from './services/session-storage.service';
 import { ModuleListService } from './services/module-list.service';
@@ -31,7 +32,7 @@ const MODERNIZATION_TERMS = [
 
 @Component({
   selector: 'app-root',
-  imports: [SearchFormComponent, ModuleMatrixComponent],
+  imports: [SearchFormComponent, ModuleMatrixComponent, ReviewQueueComponent],
   templateUrl: './app.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
